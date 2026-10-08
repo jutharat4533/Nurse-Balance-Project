@@ -38,7 +38,7 @@ NurseBalance/
 
 ```bash
 cd api
-cp .env.example .env   # แล้วกรอกค่าจริง เช่น DATABASE_URL, JWT_SECRET, ACCESS_TOKEN_SECRET
+cp .env.example .env   # แล้วกรอก DATABASE_URL และค่า ACCESS_TOKEN_* ให้ครบ
 pnpm install
 pnpm prisma migrate dev     # ใช้ migration สำหรับ development
 pnpm start:dev           # รันที่ http://localhost:10000 (ตาม PORT ใน .env)
@@ -61,29 +61,77 @@ pnpm dev -- -p 3001     # รันที่ http://localhost:3001 (ต้อง
 - สำหรับ development ที่ต้องการ sync schema อย่างรวดเร็ว ใช้ `pnpm prisma db push` ได้ แต่ production ต้องใช้ `pnpm prisma migrate deploy`
 - หากฐานข้อมูลเดิมถูกสร้างด้วย `db push` แล้ว ให้ตรวจสอบ schema ก่อน และใช้ `pnpm prisma migrate resolve --applied 20261008000000_init` เพื่อ baseline เฉพาะเมื่อ schema ตรงกับ migration นี้
 
-## Production Deployment
+## Production Deployment (Free)
 
-ก่อน deploy ให้ตั้งค่า environment จริงและห้ามใช้ secret จากไฟล์ตัวอย่าง:
+สถาปัตยกรรมที่ใช้สำหรับการใช้งานฟรี:
 
-### Backend (`api/`)
-
-```bash
-pnpm install --frozen-lockfile
-pnpm prisma migrate deploy
-pnpm build
-pnpm start:prod
+```text
+Vercel Hobby (web) → Render Free Web Service (api) → Neon Free PostgreSQL
 ```
 
-ต้องกำหนดอย่างน้อย `PORT`, `CORS_ORIGINS`, `DATABASE_URL`, `ACCESS_TOKEN_SECRET`, `ACCESS_TOKEN_EXPIRES_IN` และค่า Cloudinary ให้ครบ โดย `CORS_ORIGINS` ต้องเป็น origin ของ frontend แบบระบุชัดเจน คั่นด้วย comma และห้ามใช้ `*`
+ไม่ควรสร้าง Render Postgres สำหรับแผนฟรีระยะยาว เพราะฐานข้อมูลฟรีของ Render มีอายุจำกัด ให้ใช้ Neon เป็นฐานข้อมูลแทน
 
-### Frontend (`web/`)
+### Backend บน Render
 
-```bash
-pnpm install --frozen-lockfile
-pnpm build
-pnpm start
+Repository: `https://github.com/jutharat4533/project.nurse.balance.api`
+
+ตั้งค่า Service เป็น **Web Service / Free**:
+
+```text
+Build Command: pnpm install --frozen-lockfile && pnpm prisma migrate deploy && pnpm build
+Start Command: pnpm start:prod
 ```
 
-ต้องกำหนด `API_URL`, `NEXT_PUBLIC_API_URL`, `AUTH_URL` และสร้าง `AUTH_SECRET` ใหม่สำหรับ environment นั้น เช่น `openssl rand -base64 32`
+คำสั่ง `pnpm build` จะ generate Prisma Client ให้อัตโนมัติ และ `start:prod` จะเริ่มจาก `dist/src/main.js`
 
-การ deploy อัตโนมัติยังไม่ได้ผูกกับ provider ใดใน repository นี้ การ push code จะไม่ deploy เองจนกว่าจะตั้งค่า hosting provider หรือ CI/CD เพิ่ม
+Environment Variables ที่ต้องกำหนดใน Render:
+
+```env
+PORT=10000
+DATABASE_URL=<Neon connection string>
+CORS_ORIGINS=https://<production-web-domain>.vercel.app
+ACCESS_TOKEN_SECRET=<สุ่มอย่างน้อย 32 ตัวอักษร>
+ACCESS_TOKEN_EXPIRES_IN=86400
+CLOUDINARY_CLOUD_NAME=<Cloudinary Cloud name>
+CLOUDINARY_API_KEY=<Cloudinary API Key>
+CLOUDINARY_API_SECRET=<Cloudinary API Secret>
+```
+
+`DATABASE_URL` ต้องคัดลอกจาก Neon เมนู **Connect** โดยตรง ห้ามใช้ค่า placeholder เช่น `hostname:5432`
+
+### Frontend บน Vercel
+
+Repository: `https://github.com/jutharat4533/first-web`
+
+ตั้งค่าเป็น **Hobby** และใช้:
+
+```text
+Install Command: pnpm install --frozen-lockfile
+Build Command: pnpm build
+```
+
+Environment Variables ที่ต้องกำหนดใน Vercel:
+
+```env
+API_URL=https://<render-api-domain>.onrender.com
+NEXT_PUBLIC_API_URL=https://<render-api-domain>.onrender.com
+AUTH_URL=https://<production-web-domain>.vercel.app
+AUTH_SECRET=<สุ่มค่าใหม่อย่างน้อย 32 ตัวอักษร>
+```
+
+สร้าง secret ได้ด้วย:
+
+```bash
+openssl rand -hex 32
+```
+
+ใช้ URL จากเมนู Vercel **Domains** ซึ่งเป็น Production Domain เช่น `https://first-web-sable.vercel.app` ห้ามใช้ URL แบบมีรหัสยาว เช่น `first-xxxx-health-project3.vercel.app` เป็น URL หลัก เพราะเป็น URL เฉพาะของ Deployment
+
+หลังเปลี่ยน `AUTH_URL` หรือ `CORS_ORIGINS` ต้อง Deploy ใหม่ทั้ง Vercel และ Render
+
+### ข้อจำกัดของแผนฟรี
+
+- Render Free อาจพัก API เมื่อไม่มีการใช้งาน ทำให้ request แรกหลังพักช้า จากนั้น request ถัดไปจะเร็วขึ้น
+- Neon Free มีโควตาพื้นที่และ compute จำกัด
+- Vercel Hobby เหมาะกับโปรเจกต์ส่วนตัวและมีโควตาการใช้งาน
+- การแจ้งเตือนเวรปัจจุบันเป็นการแสดงในแอป ยังไม่ใช่ Push Notification ตอนปิดเว็บ
